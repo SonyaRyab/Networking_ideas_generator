@@ -1,0 +1,1214 @@
+openapi: 3.0.3
+info:
+  title: Content Ideas • transport
+  version: 1.1.0
+  description: LLM вариант 10. Проектный HTTP-контракт сервиса transport. Генерация 10–15 идей группами по 3–4.
+    Прикладной уровень отправляет запрос HTTP POST и получает результат через Server-Sent Events. JSON UTF-8; время
+    RFC3339; messageId UUID v4. Учебная доверенная сеть без регистрации и постоянной истории. Реализация сервисов
+    выполняется на следующем этапе.
+servers:
+- url: http://localhost:8080
+  description: Локальный адрес проектируемого сервиса
+- url: http://{host}:8080
+  description: Сервис в LAN / ZeroTier
+  variables:
+    host:
+      default: 192.168.1.11
+tags:
+- name: Запросы
+  description: Вход браузера через SSE; HTTP вход для Swagger/Postman.
+- name: Доставка
+  description: Внутренние вызовы агента, адрес транспорта фиксируется в конфигурации.
+- name: Состояние
+- name: SSE
+  description: Поток событий одного задания по HTTP; запрос отправляется отдельным POST.
+paths:
+  /api/v1/requests:
+    post:
+      operationId: createRequest
+      summary: Запустить генерацию идей
+      description: Основной вход React, Swagger и Postman. Нормализовать sender/topic через trim; requirements="",
+        ideaCount=12 по умолчанию. 202 возвращается после принятия задания агентом. Затем клиент открывает eventsUrl
+        через EventSource. Повтор того же нормализованного тела с тем же UUID возвращает 202 без новой генерации;
+        другое тело — 409. Состояние и результат доступны через GET состояния. При недоступности агента — 503 и
+        состояние failed. Имя является отображаемым, а UUID определяет задание; аутентификация для учебной доверенной
+        сети не предусмотрена.
+      tags:
+      - Запросы
+      responses:
+        '202':
+          description: Принято в фоновую обработку
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Accepted'
+              example:
+                messageId: ab3de570-7ae8-45c5-874d-0ea118c34580
+                status: accepted
+                statusUrl: /api/v1/requests/ab3de570-7ae8-45c5-874d-0ea118c34580
+                eventsUrl: /api/v1/requests/ab3de570-7ae8-45c5-874d-0ea118c34580/events
+        '400':
+          description: Некорректный JSON
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: INVALID_JSON
+                message: Некорректный JSON
+        '409':
+          description: Конфликт состояния или идентификатора
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: CONFLICT
+                message: Конфликт состояния или идентификатора
+        '413':
+          description: Тело запроса превышает 64 КиБ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: PAYLOAD_TOO_LARGE
+                message: Тело запроса превышает 64 КиБ
+        '415':
+          description: Требуется application/json
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: UNSUPPORTED_MEDIA_TYPE
+                message: Требуется application/json
+        '422':
+          description: Ошибка полей запроса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: VALIDATION_ERROR
+                message: Ошибка полей запроса
+        '503':
+          description: Зависимость сервиса недоступна
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: SERVICE_UNAVAILABLE
+                message: Зависимость сервиса недоступна
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateRequest'
+            example:
+              messageId: ab3de570-7ae8-45c5-874d-0ea118c34580
+              sender: Влад
+              sentAt: '2026-10-23T10:00:00Z'
+              topic: Подготовка автомобиля к зиме
+              contentType: post
+              requirements: Практические идеи для начинающих водителей
+              ideaCount: 12
+      parameters: []
+  /api/v1/requests/{messageId}:
+    get:
+      operationId: getRequest
+      summary: Проверить состояние и получить полный результат
+      description: Только временное состояние для текущего запуска. Не является постоянной историей чата. 404 после
+        удаления по TTL.
+      tags:
+      - Запросы
+      responses:
+        '200':
+          description: Состояние запроса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RequestStatus'
+              example:
+                messageId: ab3de570-7ae8-45c5-874d-0ea118c34580
+                status: completed
+                receivedSegments: 5
+                totalSegments: 5
+                result:
+                  messageId: ab3de570-7ae8-45c5-874d-0ea118c34580
+                  sender: content-ideas-agent
+                  sentAt: '2026-10-23T10:00:00Z'
+                  topic: Подготовка автомобиля к зиме
+                  contentType: post
+                  ideaCount: 12
+                  groups:
+                  - groupNumber: 1
+                    ideas:
+                    - number: 1
+                      title: Проверка шин
+                      description: Объяснить, как проверить износ и давление перед зимой.
+                    - number: 2
+                      title: Аккумулятор перед морозами
+                      description: Рассказать о признаках разряда и проверке аккумулятора.
+                    - number: 3
+                      title: Зимний набор в багажнике
+                      description: Собрать список вещей для поездки в мороз.
+                    - number: 4
+                      title: Проверка жидкостей
+                      description: Составить памятку по антифризу и омывателю.
+                  - groupNumber: 2
+                    ideas:
+                    - number: 5
+                      title: Свет и видимость
+                      description: Показать проверку фар, стекол и дворников.
+                    - number: 6
+                      title: Уход за уплотнителями
+                      description: Объяснить подготовку дверей к замерзанию.
+                    - number: 7
+                      title: Ошибки прогрева
+                      description: Разобрать распространённые привычки водителей.
+                    - number: 8
+                      title: План дальней поездки
+                      description: Составить список проверок перед зимней дорогой.
+                  - groupNumber: 3
+                    ideas:
+                    - number: 9
+                      title: Безопасная парковка
+                      description: Рассказать о выборе места после снегопада.
+                    - number: 10
+                      title: Действия при заносе
+                      description: Предложить разбор учебных ситуаций с инструктором.
+                    - number: 11
+                      title: Зимняя мойка
+                      description: Объяснить уход за кузовом в сезон реагентов.
+                    - number: 12
+                      title: Чек-лист на выходные
+                      description: Собрать план подготовки автомобиля за один день.
+        '404':
+          description: Запрос не найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: NOT_FOUND
+                message: Запрос не найден
+        '422':
+          description: Ошибка полей запроса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: VALIDATION_ERROR
+                message: Ошибка полей запроса
+      parameters:
+      - name: messageId
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/MessageId'
+  /api/v1/messages/{messageId}/manifest:
+    post:
+      operationId: registerManifest
+      summary: Объявить параметры полного ответа
+      description: Агент вызывает до сегментов. 201 — новый манифест; 200 — точный повтор. Другие метаданные для
+        уже зарегистрированного манифеста или завершённый запрос — 409. Только для зарегистрированного запроса.
+        Начинает отсчёт сборки даже при потере всех сегментов. sentAt совпадает с исходным запросом.
+      tags:
+      - Доставка
+      responses:
+        '201':
+          description: Манифест зарегистрирован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Manifest'
+              example:
+                sentAt: '2026-10-23T10:00:00Z'
+                totalSegments: 5
+                totalBytes: 2257
+                sha256: 833a73cea744f33126899ac36afb2958c028912e21d4cea2640c3863b346e723
+                encoding: utf-8
+        '200':
+          description: Повтор идентичного манифеста
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Manifest'
+              example:
+                sentAt: '2026-10-23T10:00:00Z'
+                totalSegments: 5
+                totalBytes: 2257
+                sha256: 833a73cea744f33126899ac36afb2958c028912e21d4cea2640c3863b346e723
+                encoding: utf-8
+        '400':
+          description: Некорректный JSON
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: INVALID_JSON
+                message: Некорректный JSON
+        '404':
+          description: Запрос не найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: NOT_FOUND
+                message: Запрос не найден
+        '409':
+          description: Конфликт состояния или идентификатора
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: CONFLICT
+                message: Конфликт состояния или идентификатора
+        '413':
+          description: Тело запроса превышает 64 КиБ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: PAYLOAD_TOO_LARGE
+                message: Тело запроса превышает 64 КиБ
+        '415':
+          description: Требуется application/json
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: UNSUPPORTED_MEDIA_TYPE
+                message: Требуется application/json
+        '422':
+          description: Ошибка полей запроса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: VALIDATION_ERROR
+                message: Ошибка полей запроса
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Manifest'
+            example:
+              sentAt: '2026-10-23T10:00:00Z'
+              totalSegments: 5
+              totalBytes: 2257
+              sha256: 833a73cea744f33126899ac36afb2958c028912e21d4cea2640c3863b346e723
+              encoding: utf-8
+      parameters:
+      - name: messageId
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/MessageId'
+  /api/v1/segments:
+    post:
+      operationId: receiveSegment
+      summary: Принять один сегмент ответа
+      description: Требуется манифест. Проверить длину payload.encode("utf-8") <=512, номер и метаданные до имитации
+        потери. Сохранить fingerprint каждой попытки, затем один раз применить вероятность 10% до Kafka. Точный
+        повтор всегда 202 без новой попытки доставки; тот же номер с другим payload — 409. Поздний сегмент после
+        completed/failed — 409. 202 одинаков для потерянного и принятого пакета. При сбое записи в Kafka — 503,
+        пакет не считается принятой попыткой.
+      tags:
+      - Доставка
+      responses:
+        '202':
+          description: HTTP обработан; доставка не гарантирована
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SegmentReceipt'
+              example:
+                messageId: ab3de570-7ae8-45c5-874d-0ea118c34580
+                segmentNumber: 1
+                status: received
+        '400':
+          description: Некорректный JSON
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: INVALID_JSON
+                message: Некорректный JSON
+        '404':
+          description: Запрос не найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: NOT_FOUND
+                message: Запрос не найден
+        '409':
+          description: Конфликт состояния или идентификатора
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: CONFLICT
+                message: Конфликт состояния или идентификатора
+        '413':
+          description: Тело запроса превышает 64 КиБ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: PAYLOAD_TOO_LARGE
+                message: Тело запроса превышает 64 КиБ
+        '415':
+          description: Требуется application/json
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: UNSUPPORTED_MEDIA_TYPE
+                message: Требуется application/json
+        '422':
+          description: Ошибка полей запроса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: VALIDATION_ERROR
+                message: Ошибка полей запроса
+        '503':
+          description: Зависимость сервиса недоступна
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: SERVICE_UNAVAILABLE
+                message: Зависимость сервиса недоступна
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Segment'
+            example:
+              messageId: ab3de570-7ae8-45c5-874d-0ea118c34580
+              sender: content-ideas-agent
+              sentAt: '2026-10-23T10:00:00Z'
+              totalSegments: 5
+              segmentNumber: 1
+              payload: '{"messageId":"ab3de570-7ae8-45c5-874d-0ea118c34580","sender":"content-ideas-agent","sentAt":"2026-10-23T10:00:00Z","topic":"Подготовка
+                автомобиля к зиме","contentType":"post","ideaCount":12,"groups":[{"groupNumber":1,"ideas":[{"number":1,"title":"Проверка
+                шин","description":"Объяснить, как проверить износ и давление перед зимой."},{"number":2,"title":"Аккумулятор
+                перед морозами","description":"Расск'
+  /api/v1/messages/{messageId}/failure:
+    post:
+      operationId: reportFailure
+      summary: Завершить запрос ошибкой агента
+      description: Ошибка генерации или доставки. Переводит запрос в failed, удаляет неполную сборку, уведомляет
+        SSE. Точный повтор этой ошибки — 204; иное терминальное состояние/иная ошибка — 409.
+      tags:
+      - Доставка
+      responses:
+        '204':
+          description: Ошибка учтена
+        '400':
+          description: Некорректный JSON
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: INVALID_JSON
+                message: Некорректный JSON
+        '404':
+          description: Запрос не найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: NOT_FOUND
+                message: Запрос не найден
+        '409':
+          description: Конфликт состояния или идентификатора
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: CONFLICT
+                message: Конфликт состояния или идентификатора
+        '413':
+          description: Тело запроса превышает 64 КиБ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: PAYLOAD_TOO_LARGE
+                message: Тело запроса превышает 64 КиБ
+        '415':
+          description: Требуется application/json
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: UNSUPPORTED_MEDIA_TYPE
+                message: Требуется application/json
+        '422':
+          description: Ошибка полей запроса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: VALIDATION_ERROR
+                message: Ошибка полей запроса
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Failure'
+            example:
+              code: MODEL_UNAVAILABLE
+              message: Локальная модель недоступна
+      parameters:
+      - name: messageId
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/MessageId'
+  /api/v1/health:
+    get:
+      operationId: transportHealth
+      summary: Проверить состояние сервиса
+      description: 200 — сервис готов; 503 — зависимость недоступна. Транспорт проверяет Kafka; агент проверяет
+        Ollama и наличие локальной модели.
+      tags:
+      - Состояние
+      responses:
+        '200':
+          description: Сервис готов
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+              example:
+                service: transport
+                status: ok
+                dependencies:
+                  kafka: up
+                  ollama: not_used
+                activeConnections: 0
+                pendingRequests: 0
+                configuration:
+                  segmentSizeBytes: 512
+                  lossPercent: 10
+                  assemblyIntervalSeconds: 3
+                  maxIdleCycles: 3
+                  generationTimeoutSeconds: 120
+        '503':
+          description: Сервис не готов
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+              example:
+                service: transport
+                status: degraded
+                dependencies:
+                  kafka: down
+                  ollama: not_used
+                activeConnections: 0
+                pendingRequests: 0
+                configuration:
+                  segmentSizeBytes: 512
+                  lossPercent: 10
+                  assemblyIntervalSeconds: 3
+                  maxIdleCycles: 3
+                  generationTimeoutSeconds: 120
+  /api/v1/requests/{messageId}/events:
+    get:
+      operationId: streamRequestEvents
+      tags:
+      - SSE
+      summary: Получать группы идей и завершение через SSE
+      description: 'Server-Sent Events для одного messageId после POST /requests. HTTP 200 text/event-stream; UTF-8,
+        поля id/event/data, пустая строка завершает событие. id = возрастающий номер 1..N внутри задания. События
+        сохраняются до удаления задания: 15 минут после терминального состояния, включая время отсутствия подписчика.
+        Без Last-Event-ID воспроизвести весь журнал; с ним — только события с большим id. Пустой заголовок равнозначен
+        отсутствию. Комментарий heartbeat каждые 10 секунд, retry: 2000. После terminal клиент вызывает EventSource.close();
+        повтор с уже полученным terminal id возвращает 204 и останавливает reconnect. Неверный, отрицательный или
+        опережающий журнал cursor — 422; удалённый UUID — 404. Это односторонний поток, входящие команды передаются
+        HTTP POST. Для просмотра SSE-потока используйте EventSource либо curl -N. Поток scoped по UUID, но UUID
+        не является полноценной аутентификацией.'
+      parameters:
+      - name: messageId
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/MessageId'
+      - name: Last-Event-ID
+        in: header
+        required: false
+        schema:
+          type: string
+          pattern: ^[0-9]*$
+          maxLength: 9
+        description: Последний обработанный id. EventSource посылает автоматически при переподключении.
+      responses:
+        '200':
+          description: События задания, затем конец потока после terminal.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: no-cache, no-transform
+            X-Accel-Buffering:
+              schema:
+                type: string
+                example: 'no'
+          content:
+            text/event-stream:
+              schema:
+                type: string
+              example: 'id: 1
+
+                event: generation_error
+
+                data: {"type": "generation_error", "messageId": "ab3de570-7ae8-45c5-874d-0ea118c34580", "sentAt":
+                "2026-10-23T10:00:00Z", "isError": true, "error": {"code": "ASSEMBLY_TIMEOUT", "message": "Не все
+                сегменты получены"}}
+
+
+                '
+        '204':
+          description: Терминальное событие уже получено; прекратить переподключение.
+        '404':
+          description: Запрос не найден или истёк TTL
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: NOT_FOUND
+                message: Запрос не найден или истёк TTL
+        '422':
+          description: Некорректный UUID или Last-Event-ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: VALIDATION_ERROR
+                message: Некорректный UUID или Last-Event-ID
+      x-sse-events:
+        idea_group:
+          $ref: '#/components/schemas/SseGroup'
+        generation_completed:
+          $ref: '#/components/schemas/SseCompleted'
+        generation_error:
+          $ref: '#/components/schemas/SseError'
+components:
+  schemas:
+    MessageId:
+      type: string
+      format: uuid
+      description: UUID v4, создаётся клиентом для одного запроса. sentAt не является уникальным идентификатором.
+      example: ab3de570-7ae8-45c5-874d-0ea118c34580
+    ContentType:
+      type: string
+      enum:
+      - blog
+      - video
+      - post
+      - post_series
+      - other
+      description: Блог, видео, пост, серия постов, другой формат.
+    GenerateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        messageId:
+          $ref: '#/components/schemas/MessageId'
+        sender:
+          type: string
+          minLength: 1
+          maxLength: 50
+          pattern: \S
+          description: Имя после trim; не является аутентификацией.
+        sentAt:
+          type: string
+          format: date-time
+          description: Время исходного запроса RFC3339 с часовым поясом. Не меняется при передаче.
+        topic:
+          type: string
+          minLength: 1
+          maxLength: 500
+          pattern: \S
+        contentType:
+          $ref: '#/components/schemas/ContentType'
+        requirements:
+          type: string
+          maxLength: 2000
+          default: ''
+        ideaCount:
+          type: integer
+          minimum: 10
+          maximum: 15
+          default: 12
+      required:
+      - messageId
+      - sender
+      - sentAt
+      - topic
+      - contentType
+      example:
+        messageId: ab3de570-7ae8-45c5-874d-0ea118c34580
+        sender: Влад
+        sentAt: '2026-10-23T10:00:00Z'
+        topic: Подготовка автомобиля к зиме
+        contentType: post
+        requirements: Практические идеи для начинающих водителей
+        ideaCount: 12
+    Idea:
+      type: object
+      additionalProperties: false
+      properties:
+        number:
+          type: integer
+          minimum: 1
+          maximum: 15
+        title:
+          type: string
+          minLength: 1
+          maxLength: 120
+        description:
+          type: string
+          minLength: 1
+          maxLength: 600
+      required:
+      - number
+      - title
+      - description
+    IdeaGroup:
+      type: object
+      additionalProperties: false
+      properties:
+        groupNumber:
+          type: integer
+          minimum: 1
+          maximum: 4
+        ideas:
+          type: array
+          items:
+            $ref: '#/components/schemas/Idea'
+          minItems: 3
+          maxItems: 4
+      required:
+      - groupNumber
+      - ideas
+    GenerationResult:
+      type: object
+      additionalProperties: false
+      properties:
+        messageId:
+          $ref: '#/components/schemas/MessageId'
+        sender:
+          type: string
+          enum:
+          - content-ideas-agent
+        sentAt:
+          type: string
+          format: date-time
+        topic:
+          type: string
+          minLength: 1
+          maxLength: 500
+        contentType:
+          $ref: '#/components/schemas/ContentType'
+        ideaCount:
+          type: integer
+          minimum: 10
+          maximum: 15
+        groups:
+          type: array
+          items:
+            $ref: '#/components/schemas/IdeaGroup'
+          minItems: 3
+          maxItems: 4
+      required:
+      - messageId
+      - sender
+      - sentAt
+      - topic
+      - contentType
+      - ideaCount
+      - groups
+      description: Количество идей равно ideaCount. Нумерация идей сквозная 1..ideaCount, групп 1..len(groups),
+        без пропусков. План 10=3+3+4; 11=3+4+4; 12=4+4+4; 13=3+3+3+4; 14=3+3+4+4; 15=3+4+4+4. После сборки проверяется
+        схема и эти межполевые ограничения.
+      example:
+        messageId: ab3de570-7ae8-45c5-874d-0ea118c34580
+        sender: content-ideas-agent
+        sentAt: '2026-10-23T10:00:00Z'
+        topic: Подготовка автомобиля к зиме
+        contentType: post
+        ideaCount: 12
+        groups:
+        - groupNumber: 1
+          ideas:
+          - number: 1
+            title: Проверка шин
+            description: Объяснить, как проверить износ и давление перед зимой.
+          - number: 2
+            title: Аккумулятор перед морозами
+            description: Рассказать о признаках разряда и проверке аккумулятора.
+          - number: 3
+            title: Зимний набор в багажнике
+            description: Собрать список вещей для поездки в мороз.
+          - number: 4
+            title: Проверка жидкостей
+            description: Составить памятку по антифризу и омывателю.
+        - groupNumber: 2
+          ideas:
+          - number: 5
+            title: Свет и видимость
+            description: Показать проверку фар, стекол и дворников.
+          - number: 6
+            title: Уход за уплотнителями
+            description: Объяснить подготовку дверей к замерзанию.
+          - number: 7
+            title: Ошибки прогрева
+            description: Разобрать распространённые привычки водителей.
+          - number: 8
+            title: План дальней поездки
+            description: Составить список проверок перед зимней дорогой.
+        - groupNumber: 3
+          ideas:
+          - number: 9
+            title: Безопасная парковка
+            description: Рассказать о выборе места после снегопада.
+          - number: 10
+            title: Действия при заносе
+            description: Предложить разбор учебных ситуаций с инструктором.
+          - number: 11
+            title: Зимняя мойка
+            description: Объяснить уход за кузовом в сезон реагентов.
+          - number: 12
+            title: Чек-лист на выходные
+            description: Собрать план подготовки автомобиля за один день.
+    Accepted:
+      type: object
+      additionalProperties: false
+      properties:
+        messageId:
+          $ref: '#/components/schemas/MessageId'
+        status:
+          type: string
+          enum:
+          - accepted
+        statusUrl:
+          type: string
+          description: Относительный HTTP путь для проверки состояния.
+        eventsUrl:
+          type: string
+          description: Относительный адрес SSE-потока данного задания.
+          example: /api/v1/requests/ab3de570-7ae8-45c5-874d-0ea118c34580/events
+      required:
+      - messageId
+      - status
+      - statusUrl
+      - eventsUrl
+    Manifest:
+      type: object
+      additionalProperties: false
+      properties:
+        sentAt:
+          type: string
+          format: date-time
+        totalSegments:
+          type: integer
+          minimum: 1
+          maximum: 1000
+        totalBytes:
+          type: integer
+          minimum: 1
+          maximum: 512000
+        sha256:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+        encoding:
+          type: string
+          enum:
+          - utf-8
+      required:
+      - sentAt
+      - totalSegments
+      - totalBytes
+      - sha256
+      - encoding
+      description: Регистрируется агентом до первого сегмента. SHA-256 от точных байтов сериализованного GenerationResult.
+        HTTP 201 должен быть получен до отправки сегментов. Это позволяет заметить потерю всех сегментов.
+    Segment:
+      type: object
+      additionalProperties: false
+      properties:
+        messageId:
+          $ref: '#/components/schemas/MessageId'
+        sender:
+          type: string
+          enum:
+          - content-ideas-agent
+        sentAt:
+          type: string
+          format: date-time
+        totalSegments:
+          type: integer
+          minimum: 1
+          maximum: 1000
+        segmentNumber:
+          type: integer
+          minimum: 1
+          maximum: 1000
+        payload:
+          type: string
+          minLength: 1
+          maxLength: 512
+          description: Не более 512 БАЙТ UTF-8 (не символов), многобайтный символ не разрывается.
+      required:
+      - messageId
+      - sender
+      - sentAt
+      - totalSegments
+      - segmentNumber
+      - payload
+      description: segmentNumber <= totalSegments; totalSegments и sentAt равны манифесту/запросу. Ключ дедупликации
+        (messageId, segmentNumber). Разбиение на байты не связано с логическими группами идей.
+    SegmentReceipt:
+      type: object
+      additionalProperties: false
+      properties:
+        messageId:
+          $ref: '#/components/schemas/MessageId'
+        segmentNumber:
+          type: integer
+          minimum: 1
+          maximum: 1000
+        status:
+          type: string
+          enum:
+          - received
+      required:
+      - messageId
+      - segmentNumber
+      - status
+      description: 'Транспорт принял HTTP запрос. Не подтверждает доставку в Kafka: в 10% случаев пакет намеренно
+        теряется. Потеря и успешное помещение в очередь дают одинаковый 202; повторная отправка для обхода потери
+        запрещена.'
+    Failure:
+      type: object
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          enum:
+          - MODEL_UNAVAILABLE
+          - GENERATION_TIMEOUT
+          - GENERATION_FAILED
+          - DELIVERY_FAILED
+        message:
+          type: string
+          minLength: 1
+          maxLength: 500
+      required:
+      - code
+      - message
+      description: Терминальная ошибка агента без частичного результата и внутренних трассировок.
+    Error:
+      type: object
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          enum:
+          - INVALID_JSON
+          - VALIDATION_ERROR
+          - NOT_FOUND
+          - CONFLICT
+          - PAYLOAD_TOO_LARGE
+          - UNSUPPORTED_MEDIA_TYPE
+          - SERVICE_UNAVAILABLE
+          - MODEL_UNAVAILABLE
+          - GENERATION_TIMEOUT
+          - GENERATION_FAILED
+          - DELIVERY_FAILED
+          - ASSEMBLY_TIMEOUT
+          - INVALID_RESULT
+        message:
+          type: string
+          minLength: 1
+        details:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+            required:
+            - field
+            - message
+          minItems: 0
+      required:
+      - code
+      - message
+    RequestStatus:
+      type: object
+      additionalProperties: false
+      properties:
+        messageId:
+          $ref: '#/components/schemas/MessageId'
+        status:
+          type: string
+          enum:
+          - accepted
+          - generating
+          - assembling
+          - completed
+          - failed
+        receivedSegments:
+          type: integer
+          minimum: 0
+          maximum: 1000
+        totalSegments:
+          type: integer
+          minimum: 0
+          maximum: 1000
+        result:
+          $ref: '#/components/schemas/GenerationResult'
+        error:
+          $ref: '#/components/schemas/Error'
+      required:
+      - messageId
+      - status
+      - receivedSegments
+      - totalSegments
+      description: result присутствует только в completed, error только в failed; до манифеста totalSegments=0.
+        Данные в памяти 15 минут после терминального состояния, затем 404. receivedSegments считает уникальные собранные
+        сегменты.
+    Health:
+      type: object
+      additionalProperties: false
+      properties:
+        service:
+          type: string
+          enum:
+          - transport
+          - agent
+        status:
+          type: string
+          enum:
+          - ok
+          - degraded
+        dependencies:
+          type: object
+          additionalProperties: false
+          properties:
+            kafka:
+              type: string
+              enum:
+              - not_used
+              - up
+              - down
+            ollama:
+              type: string
+              enum:
+              - not_used
+              - up
+              - down
+          required:
+          - kafka
+          - ollama
+        activeConnections:
+          type: integer
+          minimum: 0
+        pendingRequests:
+          type: integer
+          minimum: 0
+        configuration:
+          type: object
+          additionalProperties: false
+          properties:
+            segmentSizeBytes:
+              type: integer
+              minimum: 512
+              maximum: 512
+            lossPercent:
+              type: integer
+              minimum: 10
+              maximum: 10
+            assemblyIntervalSeconds:
+              type: integer
+              minimum: 3
+              maximum: 3
+            maxIdleCycles:
+              type: integer
+              minimum: 3
+              maximum: 3
+            generationTimeoutSeconds:
+              type: integer
+              minimum: 120
+              maximum: 120
+          required:
+          - segmentSizeBytes
+          - lossPercent
+          - assemblyIntervalSeconds
+          - maxIdleCycles
+          - generationTimeoutSeconds
+      required:
+      - service
+      - status
+      - dependencies
+      - activeConnections
+      - pendingRequests
+      - configuration
+    AgentStatus:
+      type: object
+      additionalProperties: false
+      properties:
+        messageId:
+          $ref: '#/components/schemas/MessageId'
+        status:
+          type: string
+          enum:
+          - generating
+          - delivering
+          - completed
+          - failed
+        sentSegments:
+          type: integer
+          minimum: 0
+          maximum: 1000
+        totalSegments:
+          type: integer
+          minimum: 0
+          maximum: 1000
+        error:
+          $ref: '#/components/schemas/Error'
+      required:
+      - messageId
+      - status
+      - sentSegments
+      - totalSegments
+    SseGroup:
+      type: object
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum:
+          - idea_group
+        messageId:
+          $ref: '#/components/schemas/MessageId'
+        sender:
+          type: string
+          enum:
+          - content-ideas-agent
+        sentAt:
+          type: string
+          format: date-time
+        isError:
+          type: boolean
+          enum:
+          - false
+        group:
+          $ref: '#/components/schemas/IdeaGroup'
+        totalGroups:
+          type: integer
+          minimum: 3
+          maximum: 4
+      required:
+      - type
+      - messageId
+      - sender
+      - sentAt
+      - isError
+      - group
+      - totalGroups
+    SseCompleted:
+      type: object
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum:
+          - generation_completed
+        messageId:
+          $ref: '#/components/schemas/MessageId'
+        sentAt:
+          type: string
+          format: date-time
+        isError:
+          type: boolean
+          enum:
+          - false
+        ideaCount:
+          type: integer
+          minimum: 10
+          maximum: 15
+      required:
+      - type
+      - messageId
+      - sentAt
+      - isError
+      - ideaCount
+    SseError:
+      type: object
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum:
+          - generation_error
+        messageId:
+          $ref: '#/components/schemas/MessageId'
+        sentAt:
+          type: string
+          format: date-time
+        isError:
+          type: boolean
+          enum:
+          - true
+        error:
+          $ref: '#/components/schemas/Error'
+      required:
+      - type
+      - sentAt
+      - isError
+      - error
+      - messageId
+      description: 'Терминальная прикладная ошибка данного задания. event: generation_error. Частичный результат
+        не передаётся. Сетевой error EventSource обрабатывается отдельно.'
+security: []
