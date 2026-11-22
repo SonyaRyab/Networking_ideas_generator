@@ -47,6 +47,25 @@ function formatTime(isoString?: string): string {
   });
 }
 
+function generateUUID(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    bytes[6] = (bytes[6] & 0x0f) | 0x40; // версия 4
+    bytes[8] = (bytes[8] & 0x3f) | 0x80; // вариант RFC 4122
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 export const ChatPage: React.FC = () => {
   const dispatch = useDispatch();
   const { username, darkMode, sessionId, turns } = useSelector(
@@ -107,7 +126,7 @@ export const ChatPage: React.FC = () => {
       return;
     }
 
-    const messageId = crypto.randomUUID();
+    const messageId = generateUUID();
     const sentAt = new Date().toISOString();
     const currentSession = sessionRef.current;
 
@@ -327,11 +346,13 @@ export const ChatPage: React.FC = () => {
                 }}
                 error={Boolean(topicError)}
                 helperText={topicError}
-                FormHelperTextProps={{
-                  sx: {
-                    color: darkMode ? '#FFD166' : '#D32F2F',
-                    fontWeight: 500,
-                    mx: 1,
+                slotProps={{
+                  formHelperText: {
+                    sx: {
+                      color: darkMode ? '#FFD166' : '#D32F2F',
+                      fontWeight: 500,
+                      mx: 1,
+                    },
                   },
                 }}
                 sx={inputSx}
@@ -404,7 +425,11 @@ export const ChatPage: React.FC = () => {
                 placeholder="Введите пожелания, уточнения"
                 value={requirements}
                 onChange={(e) => setRequirements(e.target.value)}
-                inputProps={{ maxLength: 2000 }}
+                slotProps={{
+                  htmlInput: {
+                    maxLength: 2000,
+                  },
+                }}
                 sx={inputSx}
               />
             </Box>
