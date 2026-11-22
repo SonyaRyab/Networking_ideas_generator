@@ -1,0 +1,10 @@
+# Применять после compose.ollama.yaml на Windows/WSL2 или Linux с NVIDIA.
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

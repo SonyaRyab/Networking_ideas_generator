@@ -1,0 +1,485 @@
+openapi: 3.0.3
+info:
+  title: Content Ideas Agent
+  version: 1.0.0
+  description: Агент локальной генерации через Ollama. После 202 регистрирует манифест
+    и отправляет сегменты транспорту. completed означает завершение HTTP-отправки,
+    а не сборки ответа. Одинаковый нормализованный запрос с занятым UUID идемпотентен;
+    иной запрос даёт 409. Диагностика хранится 15 минут после завершения и исчезает
+    при перезапуске.
+servers:
+- url: /
+paths:
+  /api/v1/generate:
+    post:
+      operationId: generateIdeas
+      summary: Принять задание в фоновую обработку
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateRequest'
+            example:
+              messageId: 8d964744-5b5c-4c3b-91f1-6f54e325c979
+              sender: Кирилл
+              sentAt: '2026-11-22T17:00:00+03:00'
+              topic: Учёба в университете
+              contentType: video
+              requirements: Для первокурсников
+              ideaCount: 12
+      responses:
+        '202':
+          description: Задание принято
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Accepted'
+        '400':
+          description: Некорректный JSON UTF-8
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: UUID занят другим запросом
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '413':
+          description: Тело больше 64 КиБ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '415':
+          description: Требуется application/json
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Нарушена схема запроса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Очередь заполнена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/generations/{messageId}:
+    get:
+      operationId: getGeneration
+      summary: Проверить генерацию и отправку
+      parameters:
+      - name: messageId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Состояние задания
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerationStatus'
+        '404':
+          description: Неизвестное или удалённое задание
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Некорректный UUID v4
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/health:
+    get:
+      operationId: getHealth
+      summary: Проверить Ollama и наличие выбранной модели
+      responses:
+        '200':
+          description: Ollama доступна, модель установлена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+        '503':
+          description: Ollama недоступна или модель отсутствует
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+components:
+  schemas:
+    ContentType:
+      enum:
+      - blog
+      - video
+      - post
+      - post_series
+      - other
+      title: ContentType
+      type: string
+    GenerateRequest:
+      additionalProperties: false
+      properties:
+        messageId:
+          format: uuid
+          title: Messageid
+          type: string
+        sender:
+          maxLength: 50
+          minLength: 1
+          title: Sender
+          type: string
+        sentAt:
+          format: date-time
+          title: Sentat
+          type: string
+        topic:
+          maxLength: 500
+          minLength: 1
+          title: Topic
+          type: string
+        contentType:
+          $ref: '#/components/schemas/ContentType'
+        requirements:
+          default: ''
+          maxLength: 2000
+          title: Requirements
+          type: string
+        ideaCount:
+          default: 12
+          maximum: 15
+          minimum: 10
+          title: Ideacount
+          type: integer
+      required:
+      - messageId
+      - sender
+      - sentAt
+      - topic
+      - contentType
+      title: GenerateRequest
+      type: object
+    Idea:
+      additionalProperties: false
+      properties:
+        number:
+          maximum: 15
+          minimum: 1
+          title: Number
+          type: integer
+        title:
+          maxLength: 120
+          minLength: 1
+          title: Title
+          type: string
+        description:
+          maxLength: 600
+          minLength: 1
+          title: Description
+          type: string
+      required:
+      - number
+      - title
+      - description
+      title: Idea
+      type: object
+    IdeaGroup:
+      additionalProperties: false
+      properties:
+        groupNumber:
+          maximum: 4
+          minimum: 1
+          title: Groupnumber
+          type: integer
+        ideas:
+          items:
+            $ref: '#/components/schemas/Idea'
+          maxItems: 4
+          minItems: 3
+          title: Ideas
+          type: array
+      required:
+      - groupNumber
+      - ideas
+      title: IdeaGroup
+      type: object
+    GenerationResult:
+      additionalProperties: false
+      properties:
+        messageId:
+          title: Messageid
+          type: string
+        sender:
+          default: content-ideas-agent
+          title: Sender
+          type: string
+          enum:
+          - content-ideas-agent
+        sentAt:
+          title: Sentat
+          type: string
+        topic:
+          maxLength: 500
+          minLength: 1
+          title: Topic
+          type: string
+        contentType:
+          $ref: '#/components/schemas/ContentType'
+        ideaCount:
+          maximum: 15
+          minimum: 10
+          title: Ideacount
+          type: integer
+        groups:
+          items:
+            $ref: '#/components/schemas/IdeaGroup'
+          maxItems: 4
+          minItems: 3
+          title: Groups
+          type: array
+      required:
+      - messageId
+      - sentAt
+      - topic
+      - contentType
+      - ideaCount
+      - groups
+      title: GenerationResult
+      type: object
+    Manifest:
+      additionalProperties: false
+      properties:
+        sentAt:
+          title: Sentat
+          type: string
+        totalSegments:
+          maximum: 1000
+          minimum: 1
+          title: Totalsegments
+          type: integer
+        totalBytes:
+          maximum: 512000
+          minimum: 1
+          title: Totalbytes
+          type: integer
+        sha256:
+          pattern: ^[0-9a-f]{64}$
+          title: Sha256
+          type: string
+        encoding:
+          default: utf-8
+          title: Encoding
+          type: string
+          enum:
+          - utf-8
+      required:
+      - sentAt
+      - totalSegments
+      - totalBytes
+      - sha256
+      title: Manifest
+      type: object
+    Segment:
+      additionalProperties: false
+      properties:
+        messageId:
+          title: Messageid
+          type: string
+        sender:
+          default: content-ideas-agent
+          title: Sender
+          type: string
+          enum:
+          - content-ideas-agent
+        sentAt:
+          title: Sentat
+          type: string
+        totalSegments:
+          maximum: 1000
+          minimum: 1
+          title: Totalsegments
+          type: integer
+        segmentNumber:
+          maximum: 1000
+          minimum: 1
+          title: Segmentnumber
+          type: integer
+        payload:
+          maxLength: 512
+          minLength: 1
+          title: Payload
+          type: string
+      required:
+      - messageId
+      - sentAt
+      - totalSegments
+      - segmentNumber
+      - payload
+      title: Segment
+      type: object
+    Failure:
+      additionalProperties: false
+      properties:
+        code:
+          enum:
+          - MODEL_UNAVAILABLE
+          - GENERATION_TIMEOUT
+          - GENERATION_FAILED
+          - DELIVERY_FAILED
+          title: Code
+          type: string
+        message:
+          maxLength: 500
+          minLength: 1
+          title: Message
+          type: string
+      required:
+      - code
+      - message
+      title: Failure
+      type: object
+    Error:
+      type: object
+      required:
+      - code
+      - message
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: array
+          items:
+            type: object
+            required:
+            - field
+            - message
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+    Accepted:
+      type: object
+      required:
+      - messageId
+      - status
+      - statusUrl
+      additionalProperties: false
+      properties:
+        messageId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+          - accepted
+        statusUrl:
+          type: string
+    GenerationStatus:
+      type: object
+      additionalProperties: false
+      required:
+      - messageId
+      - status
+      - acceptedAt
+      - updatedAt
+      - totalSegments
+      - sentSegments
+      properties:
+        messageId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+          - accepted
+          - generating
+          - sending
+          - completed
+          - failed
+        acceptedAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        totalSegments:
+          type: integer
+          minimum: 0
+          maximum: 1000
+        sentSegments:
+          type: integer
+          minimum: 0
+          maximum: 1000
+        error:
+          $ref: '#/components/schemas/Failure'
+        failureNotified:
+          type: boolean
+    Health:
+      type: object
+      required:
+      - service
+      - status
+      - dependencies
+      - pendingRequests
+      - configuration
+      properties:
+        service:
+          type: string
+          enum:
+          - agent
+        status:
+          type: string
+          enum:
+          - ok
+          - degraded
+        dependencies:
+          type: object
+          required:
+          - ollama
+          - model
+          - modelReady
+          properties:
+            ollama:
+              type: string
+              enum:
+              - up
+              - down
+            model:
+              type: string
+            modelReady:
+              type: boolean
+        pendingRequests:
+          type: integer
+          minimum: 0
+        configuration:
+          type: object
+          properties:
+            segmentSizeBytes:
+              type: integer
+              enum:
+              - 512
+            segmentDelayMs:
+              type: integer
+              minimum: 100
+              maximum: 300
+            generationTimeoutSeconds:
+              type: number
+            maxConcurrentGenerations:
+              type: integer
+              minimum: 1

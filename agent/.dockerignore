@@ -1,0 +1,7 @@
+*
+!app/
+!app/*.py
+!requirements.lock
+!agent.openapi.yaml
+**/__pycache__/
+**/*.pyc
